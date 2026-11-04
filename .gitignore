@@ -2,3 +2,8 @@ node_modules/
 .wrangler/
 .DS_Store
 *.log
+
+# Arquivos com dados de empresa ou de clientes nunca vão para o GitHub
+scapus-configuracao.json
+configuracao-*.json
+backup-orcamentos-*.json

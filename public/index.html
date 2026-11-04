@@ -3,14 +3,13 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>Orçamentos | Scapus Lab</title>
+  <title>Orçamentos 3D | Scapus Lab</title>
   <meta name="description" content="Monte orçamentos de impressão 3D e modelagem com custo de material, máquina, energia, mão de obra e margem.">
   <meta name="theme-color" content="#141210">
-  <meta name="robots" content="noindex">
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="referrer" content="no-referrer">
   <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400..700&display=swap" rel="stylesheet">
+  <link rel="preload" href="assets/fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="assets/styles.css">
 </head>
 <body>
@@ -26,7 +25,7 @@
         <a href="#materiais" data-view="materiais">Materiais</a>
         <a href="#empresa" data-view="empresa">Empresa e equipe</a>
       </nav>
-      <p class="side-foot">Tudo é salvo sozinho neste navegador. Para levar a outro aparelho, use o backup em Empresa e equipe.</p>
+      <p class="side-foot" id="side-foot"></p>
     </aside>
     <main id="main" tabindex="-1"></main>
   </div>

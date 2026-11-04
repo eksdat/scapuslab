@@ -27,8 +27,25 @@
   const hojeISO = () => isoLocal(new Date());
   const hhmm = (d) => `${pad(d.getHours())}:${pad(d.getMinutes())}`;
   const addDias = (iso, n) => { const d = new Date(iso + 'T12:00:00'); d.setDate(d.getDate() + (Number(n) || 0)); return isoLocal(d); };
-  const fmtData = (iso) => { if (!iso) return ''; const [y, m, d] = String(iso).slice(0, 10).split('-'); return `${d}/${m}/${y}`; };
-  const corValida = (c) => (/^#[0-9a-f]{6}$/i.test(c || '') ? c : '#FF6A00');
+  const dataOk = (v) => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}/.test(v);
+  const fmtData = (iso) => { if (!dataOk(iso)) return ''; const [y, m, d] = iso.slice(0, 10).split('-'); return `${d}/${m}/${y}`; };
+  /* Só aceita imagem embutida (data:image/...). Qualquer outra coisa vira "sem logo". */
+  const logoSeguro = (v) => (typeof v === 'string' && /^data:image\/(png|jpe?g|gif|webp|svg\+xml)(;[a-z0-9=;-]*)?(;base64)?,[a-z0-9+/=%._~!$&'()*,;:@-]*$/i.test(v) ? v : '');
+  const imgLogo = (v, alt) => { const src = logoSeguro(v); return src ? `<img src="${esc(src)}" alt="${esc(alt || '')}">` : ''; };
+  const mesa = (imp) => ((imp && Array.isArray(imp.volume) ? imp.volume : []).slice(0, 3).map((x) => fmtNum(C.n0(x))).join(' × '));
+  /* Lê JSON descartando chaves que poderiam alterar protótipos de objetos. */
+  const lerJSON = (txt) => JSON.parse(txt, (k, v) => (k === '__proto__' || k === 'constructor' || k === 'prototype' ? undefined : v));
+  const corValida = (c) => (/^#[0-9a-f]{6}$/i.test(c || '') ? c : '');
+  const COR_FERRAMENTA = '#FF6A00', COR_DOC_NEUTRA = '#3A342E';
+  const corUI = (c) => corValida(c) || COR_FERRAMENTA;
+  const corDoc = (c) => corValida(c) || COR_DOC_NEUTRA;
+  /* Texto legível sobre a cor da marca: escuro em cores claras, branco em cores escuras. */
+  function textoSobre(hex) {
+    const v = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255).map((c) => (c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4)));
+    const L = 0.2126 * v[0] + 0.7152 * v[1] + 0.0722 * v[2];
+    return (L + 0.05) / 0.05 >= 1.05 / (L + 0.05) ? '#1D1A16' : '#FFFFFF';
+  }
+  const slug = (t) => String(t || 'empresa').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'empresa';
   const iniciais = (n) => (String(n || '').trim().split(/\s+/).map((w) => w[0] || '').join('').slice(0, 2) || '3D').toUpperCase();
   const acha = (lista, id) => (lista || []).find((x) => x.id === id) || null;
   const apelido = (imp) => (imp ? imp.apelido || `${imp.marca} ${imp.modelo}` : 'impressora');
@@ -63,10 +80,10 @@
   /* ---------- estado ---------- */
   function migrar(s) {
     const base = D.estadoInicial();
-    if (!Array.isArray(s.equipe) || !s.equipe.length) s.equipe = base.equipe;
+    if (!lista(s.equipe).length) s.equipe = base.equipe;
     s.ui = Object.assign({}, base.ui, s.ui || {});
     if ((Number(s.versao) || 1) < 2) {
-      const e = s.empresa;
+      const e = s.empresa = obj(s.empresa);
       if (!e.logo) e.logo = base.empresa.logo;
       if (e.cor === '#B07A2A') e.cor = base.empresa.cor;
       if (e.slogan === 'Impressão 3D sob medida em Belo Horizonte') e.slogan = base.empresa.slogan;
@@ -74,41 +91,142 @@
       if (!e.site) e.site = base.empresa.site;
       s.versao = 2;
     }
+    if ((Number(s.versao) || 1) < 3) {
+      // Até a versão 2 a plataforma vinha com o nome, o logo e os contatos da Scapus Lab.
+      // A partir da 3, cada empresa se cadastra: o que ainda for o padrão antigo é apagado.
+      const e = s.empresa = obj(s.empresa);
+      const ANTIGO = { nome: 'Scapus Lab', slogan: 'Modelagem 3D, protótipos e peças sob encomenda', instagram: '@scapus.br', site: 'scapus.com.br', cidade: 'Belo Horizonte – MG', prefixo: 'SCP', cor: '#FF6A00' };
+      Object.keys(ANTIGO).forEach((k) => { if (e[k] === ANTIGO[k]) e[k] = base.empresa[k]; });
+      let logo = String(e.logo || '');
+      try { logo = decodeURIComponent(logo); } catch (x) { /* mantém */ }
+      if (logo.indexOf('M117 36.5H70C53') >= 0) e.logo = '';
+      s.ui.empresaCadastrada = false;
+      s.versao = 3;
+    }
     const migrarOrc = (o) => {
-      if (!o) return;
+      if (!o || typeof o !== 'object') return;
       if (!Array.isArray(o.servicos)) o.servicos = [];
       (o.itens || []).forEach((it) => {
         const h = C.n0(it.modelagemH);
         if (h > 0) { o.servicos.push({ id: uid(), descricao: 'Modelagem 3D' + (it.descricao ? ': ' + it.descricao : ''), horas: fmtIn(h) }); it.modelagemH = 0; }
       });
-      if (!o.responsavelId) o.responsavelId = s.equipe[0].id;
+      if (!o.responsavelId) o.responsavelId = (s.equipe[0] || {}).id;
     };
     migrarOrc(s.atual);
     (s.orcamentos || []).forEach(migrarOrc);
     return s;
   }
 
-  function mesclar(base, s) {
-    if (!s || typeof s !== 'object') return base;
-    return migrar(Object.assign({}, base, s, {
-      empresa: Object.assign({}, base.empresa, s.empresa || {}),
-      params: Object.assign({}, base.params, s.params || {}),
-      materiais: Array.isArray(s.materiais) && s.materiais.length ? s.materiais : base.materiais,
-      impressoras: Array.isArray(s.impressoras) && s.impressoras.length ? s.impressoras : base.impressoras,
+  /* Confere tipos e formatos de tudo que vem do navegador ou de um backup, para que um arquivo
+     adulterado não consiga injetar HTML nem quebrar a página. O texto é escapado na hora de exibir. */
+  const idOk = (v) => typeof v === 'string' && /^[A-Za-z0-9_-]{1,48}$/.test(v);
+  const obj = (v) => (v && typeof v === 'object' && !Array.isArray(v) ? v : {});
+  const lista = (v) => (Array.isArray(v) ? v.filter((x) => x && typeof x === 'object' && !Array.isArray(x)) : []);
+  const txt = (v) => (v == null ? '' : typeof v === 'string' ? v : typeof v === 'number' || typeof v === 'boolean' ? String(v) : '');
+  const nOuVazio = (v) => (v === '' || v == null ? '' : C.n0(v));
+  function sanearOrc(o) {
+    o.id = idOk(o.id) ? o.id : uid();
+    o.numero = typeof o.numero === 'string' ? o.numero.slice(0, 40) : null;
+    o.status = Object.prototype.hasOwnProperty.call(STATUS, o.status) ? o.status : 'rascunho';
+    ['criadoEm', 'emitidoEm'].forEach((k) => { if (o[k] != null && !dataOk(o[k])) delete o[k]; });
+    if (o.totalCache != null) o.totalCache = C.n0(o.totalCache);
+    o.cliente = obj(o.cliente);
+    ['nome', 'contato', 'cidade'].forEach((k) => { o.cliente[k] = txt(o.cliente[k]); });
+    o.itens = lista(o.itens);
+    o.itens.forEach((it) => {
+      it.id = idOk(it.id) ? it.id : uid();
+      ['descricao', 'cor', 'tempo', 'materialId', 'impressoraId'].forEach((k) => { it[k] = txt(it[k]); });
+      ['qtd', 'gramas', 'acabamentoMin', 'extras', 'modelagemH'].forEach((k) => { it[k] = nOuVazio(it[k]); });
+      it.dims = (Array.isArray(it.dims) ? it.dims : []).slice(0, 3).map(nOuVazio);
+      while (it.dims.length < 3) it.dims.push('');
+    });
+    o.servicos = lista(o.servicos);
+    o.servicos.forEach((sv) => { sv.id = idOk(sv.id) ? sv.id : uid(); sv.descricao = txt(sv.descricao); sv.horas = txt(sv.horas); });
+    ['entrega', 'pagamento', 'prazo', 'observacoes', 'responsavelId'].forEach((k) => { o[k] = txt(o[k]); });
+    ['frete', 'descontoPct'].forEach((k) => { o[k] = nOuVazio(o[k]); });
+    o.travado = !!o.travado;
+    if (o.snap) { o.snap = obj(o.snap); o.snap.params = obj(o.snap.params); o.snap.materiais = lista(o.snap.materiais).map(sanearMat); o.snap.impressoras = lista(o.snap.impressoras).map(sanearImp); }
+    return o;
+  }
+  function sanearMat(m) {
+    m.id = idOk(m.id) ? m.id : 'mat-' + uid();
+    m.nome = txt(m.nome); m.familia = Object.prototype.hasOwnProperty.call(D.FAMILIAS, m.familia) ? m.familia : 'PLA';
+    m.precoKg = C.n0(m.precoKg); m.ativo = !!m.ativo;
+    return m;
+  }
+  function sanearImp(i) {
+    i.id = idOk(i.id) ? i.id : 'imp-' + uid();
+    ['apelido', 'marca', 'modelo', 'estrutura', 'obs', 'potenciaFonte'].forEach((k) => { i[k] = txt(i[k]); });
+    i.catalogoId = idOk(i.catalogoId) ? i.catalogoId : null;
+    i.volume = (Array.isArray(i.volume) ? i.volume : [256, 256, 256]).slice(0, 3).map((x) => C.n0(x));
+    while (i.volume.length < 3) i.volume.push(0);
+    const fam = (a) => (Array.isArray(a) ? a.filter((f) => Object.prototype.hasOwnProperty.call(D.FAMILIAS, f)) : []);
+    i.ideais = fam(i.ideais); i.possiveis = fam(i.possiveis);
+    ['potencia', 'vidaUtilH', 'manutencaoH'].forEach((k) => { i[k] = C.n0(i[k]); });
+    i.precoPago = nOuVazio(i.precoPago);
+    return i;
+  }
+  function sanear(s) {
+    const e = s.empresa;
+    Object.keys(e).forEach((k) => { if (typeof e[k] !== 'boolean' && typeof e[k] !== 'number') e[k] = txt(e[k]); });
+    e.logo = logoSeguro(e.logo);
+    e.cor = corValida(e.cor);
+    Object.keys(s.params).forEach((k) => { s.params[k] = C.n0(s.params[k]); });
+    s.materiais = lista(s.materiais).map(sanearMat);
+    s.impressoras = lista(s.impressoras).map(sanearImp);
+    s.exemplos = lista(s.exemplos).map((x) => ({ id: idOk(x.id) ? x.id : 'ex-' + uid(), nome: txt(x.nome), gramas: nOuVazio(x.gramas), tempo: txt(x.tempo) }));
+    s.equipe = lista(s.equipe).map((m) => ({ id: idOk(m.id) ? m.id : 'eq-' + uid(), nome: txt(m.nome), cargo: txt(m.cargo), whatsapp: txt(m.whatsapp), email: txt(m.email) }));
+    if (!s.equipe.length) s.equipe = D.estadoInicial().equipe;
+    s.orcamentos = lista(s.orcamentos).map(sanearOrc);
+    s.atual = s.atual && typeof s.atual === 'object' ? sanearOrc(s.atual) : null;
+    s.ui = obj(s.ui);
+    if (s.ui.ultimoBackup && !dataOk(s.ui.ultimoBackup)) s.ui.ultimoBackup = '';
+    s.ui.ultimoResponsavel = idOk(s.ui.ultimoResponsavel) ? s.ui.ultimoResponsavel : s.equipe[0].id;
+    s.ui.empresaCadastrada = !!s.ui.empresaCadastrada && preenchido(e.nome);
+    delete s.ui.setupFeito; delete s.ui.bloqueioMin;
+    s.seq = Math.max(0, Math.round(C.n0(s.seq)));
+    return s;
+  }
+
+  const CHAVES = ['versao', 'seq', 'empresa', 'equipe', 'ui', 'params', 'materiais', 'impressoras', 'exemplos', 'orcamentos', 'atual'];
+  function mesclar(base, bruto) {
+    if (!bruto || typeof bruto !== 'object' || Array.isArray(bruto)) return sanear(base);
+    const s = {};
+    CHAVES.forEach((k) => { if (Object.prototype.hasOwnProperty.call(bruto, k)) s[k] = bruto[k]; });
+    if (!s.materiais || !s.materiais.length) s.materiais = base.materiais;
+    if (!s.impressoras || !s.impressoras.length) s.impressoras = base.impressoras;
+    return sanear(migrar(Object.assign({}, base, s, {
+      empresa: Object.assign({}, base.empresa, obj(s.empresa)),
+      params: Object.assign({}, base.params, obj(s.params)),
+      materiais: lista(s.materiais).length ? s.materiais : base.materiais,
+      impressoras: lista(s.impressoras).length ? s.impressoras : base.impressoras,
       exemplos: Array.isArray(s.exemplos) ? s.exemplos : base.exemplos,
       orcamentos: Array.isArray(s.orcamentos) ? s.orcamentos : []
-    }));
+    })));
   }
 
+  /* ---------- armazenamento ----------
+     Tudo fica no localStorage deste navegador, numa única chave. Nada é enviado para servidor. */
   let migrou = false;
-  function carregar() {
-    let s = null;
-    try { s = JSON.parse(localStorage.getItem(KEY) || 'null'); } catch (e) { s = null; }
-    if (s && Number(s.versao) !== 2) migrou = true;
-    return mesclar(D.estadoInicial(), s);
+  let S = null;
+  function lerBruto() {
+    try { return lerJSON(localStorage.getItem(KEY) || 'null'); } catch (e) { return null; }
   }
-
-  let S = carregar();
+  function iniciarEstado() {
+    let b = lerBruto();
+    if (b && typeof b === 'object' && b.cifrado) b = null; // dados de uma versão de teste com senha, que não existe mais
+    if (b && Number(b.versao) !== 3) migrou = true;
+    S = mesclar(D.estadoInicial(), b);
+  }
+  const LIMITE = 2500000; // menor limite comum do localStorage: Safari/iPhone guarda ~5 MB em UTF-16 (~2,5 milhões de caracteres)
+  function usoArmazenamento() {
+    let n = 0;
+    try { n = (localStorage.getItem(KEY) || '').length; } catch (e) { n = 0; }
+    return Math.min(1, n / LIMITE);
+  }
+  function pedirPersistencia() {
+    try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {}); } catch (e) { /* sem suporte */ }
+  }
   const U = { busca: '', marca: '', tabMat: '', tabImp: '', histFiltro: 'todos', histBusca: '', abertos: {} };
   let timer = 0, pendente = false, avisouStorage = false, ultimoSalvo = null;
 
@@ -125,12 +243,20 @@
   function salvar() { pendente = true; clearTimeout(timer); timer = setTimeout(salvarJa, 400); }
   function salvarJa() {
     clearTimeout(timer); pendente = false;
+    if (!S) return;
     if (S.atual && temConteudo(S.atual)) registrar();
-    try { localStorage.setItem(KEY, JSON.stringify(S)); ultimoSalvo = new Date(); }
-    catch (e) { if (!avisouStorage) { avisouStorage = true; toast('Este navegador não deixou salvar. Exporte um backup para não perder os dados.'); } }
+    gravar(JSON.stringify(S));
+    ultimoSalvo = new Date();
     indicarSalvo();
   }
+  function gravar(json) {
+    try { localStorage.setItem(KEY, json); avisouStorage = false; }
+    catch (e) {
+      if (!avisouStorage) { avisouStorage = true; toast('Este navegador não deixou salvar (espaço cheio ou modo privado). Exporte um backup e exclua orçamentos antigos.'); }
+    }
+  }
   function indicarSalvo() {
+    if (!S) return;
     const n = $('#numero'); if (n && S.atual) n.textContent = S.atual.numero || '';
     const el = $('#salvo');
     if (el) el.textContent = S.atual && S.atual.numero && ultimoSalvo ? `Salvo no histórico às ${hhmm(ultimoSalvo)}` : '';
@@ -147,9 +273,14 @@
     o.atualizadoEm = new Date().toISOString();
     o.totalCache = calcAtual().total;
     const copia = clone(o);
-    if (!o.travado) copia.snap = clone(ctx());
+    if (!o.travado) copia.snap = snapDe(o);
     const i = S.orcamentos.findIndex((x) => x.id === o.id);
     if (i >= 0) S.orcamentos[i] = copia; else S.orcamentos.unshift(copia);
+  }
+
+  function snapDe(o) {
+    const mats = new Set((o.itens || []).map((it) => it.materialId)), imps = new Set((o.itens || []).map((it) => it.impressoraId));
+    return { params: clone(S.params), materiais: clone(S.materiais.filter((m) => mats.has(m.id))), impressoras: clone(S.impressoras.filter((i) => imps.has(i.id))) };
   }
 
   /* Ação destrutiva com "Desfazer" no aviso, em vez de caixa de confirmação. */
@@ -290,7 +421,6 @@
     garantirAtual();
     const o = S.atual, trav = !!o.travado;
     return `<div class="page">
-    ${S.ui.setupFeito ? '' : setupHTML()}
     <header class="page-head">
       <div>
         <h1>Orçamento<span class="num-badge" id="numero">${esc(o.numero || '')}</span></h1>
@@ -322,21 +452,6 @@
     </div>
     <div class="mbar" id="mbar">${mbarHTML()}</div>
     </div>`;
-  }
-
-  function setupHTML() {
-    const e = S.empresa, eq = S.equipe[0];
-    const feitos = [eq.nome, e.whatsapp, e.pix, e.retiradaLocal].filter(preenchido).length;
-    return `<section class="setup" aria-labelledby="h-setup">
-      <div class="setup-head"><div><h2 id="h-setup">Antes do primeiro orçamento</h2><p>Esses dados vão no PDF e na mensagem para o cliente. Dá para mudar depois em Empresa e equipe.</p></div><span class="progress" id="setup-prog">${feitos} de 4 preenchidos</span></div>
-      <div class="grid g4">
-        ${campo('Seu nome', inp('equipe.0.nome', eq.nome, 'Quem assina os orçamentos', 'autocomplete="name"'))}
-        ${campo(`WhatsApp da ${esc(e.nome)}`, inp('empresa.whatsapp', e.whatsapp, '(31) 9 9999-9999', 'inputmode="tel"'))}
-        ${campo('Chave Pix', inp('empresa.pix', e.pix, 'CPF, CNPJ, e-mail ou celular'))}
-        ${campo(`Ponto de retirada em ${esc(cidadeCurta())}`, inp('empresa.retiradaLocal', e.retiradaLocal, 'ex.: estação de metrô, faculdade'))}
-      </div>
-      <div class="head-actions"><button class="btn btn-solid" data-act="setup-ok">Concluir</button><button class="btn btn-text" data-act="setup-ok">Fazer depois</button></div>
-    </section>`;
   }
 
   function clienteHTML() {
@@ -397,7 +512,7 @@
           ${campo('Extras por peça (R$)', numInp('data-f="extras"', it.extras, { ph: '0,00' }), 'Ímã, argola, parafuso')}
           <div class="field"><span class="field-label">Tamanho X × Y × Z (mm)</span>
             <div class="dims">${[0, 1, 2].map((k) => `<input type="text" inputmode="numeric" data-tipo="num" data-f="dims.${k}" value="${esc(fmtIn(dims[k]))}" placeholder="${'XYZ'[k]}" aria-label="${'XYZ'[k]} em mm" autocomplete="off">`).join('<span aria-hidden="true">×</span>')}</div>
-            <small>Confere se cabe na mesa${imp ? ` da ${esc(apelido(imp))} (${imp.volume.join(' × ')} mm)` : ''}.</small>
+            <small>Confere se cabe na mesa${imp ? ` da ${esc(apelido(imp))} (${mesa(imp)} mm)` : ''}.</small>
           </div>
         </div>
       </details>
@@ -420,7 +535,7 @@
       } else if (a.tipo === 'material') {
         out.push(nota('atencao', `${esc(x.mat.nome)} na ${nomeImp} é possível, mas pede cuidados (fechamento, bico endurecido ou secagem). Considere uma reserva de falhas maior.`));
       } else if (a.tipo === 'tamanho') {
-        out.push(nota('ruim', `Não cabe na mesa da ${nomeImp} (${x.imp.volume.join(' × ')} mm). Divida o modelo em partes e some gramas e tempo.`));
+        out.push(nota('ruim', `Não cabe na mesa da ${nomeImp} (${mesa(x.imp)} mm). Divida o modelo em partes e some gramas e tempo.`));
       }
     });
     return out.join('');
@@ -489,7 +604,7 @@
     const desc = r.camadas.filter((c) => c.valor > 0).map((c) => `${c.nome} ${pct(c.valor / tot)}`).join(', ');
     return `<div class="stack">
       <div class="stack-figure" role="img" aria-label="Composição do preço: ${esc(desc)}">
-        <div class="stack-col">${r.camadas.map((c) => `<span class="seg seg-${c.chave}" style="flex-grow:${(c.valor / tot).toFixed(4)}"></span>`).join('')}</div>
+        <div class="stack-col">${r.camadas.map((c) => `<span class="seg seg-${c.chave}" data-grow="${(c.valor / tot).toFixed(4)}"></span>`).join('')}</div>
         <div class="plate"></div>
       </div>
       <ul class="stack-legend">${r.camadas.slice().reverse().map((c) => `<li><i class="seg-${c.chave}"></i><span>${c.nome}</span><b>${brl(c.valor)}</b></li>`).join('')}</ul>
@@ -517,6 +632,7 @@
   function pendencias(r) {
     const o = S.atual, P = [];
     const resp = responsavel(o);
+    if (!empresaValida()) P.push({ b: true, t: 'Dados da empresa: nome, cidade e WhatsApp ou e-mail', alvo: '#empresa' });
     if (!preenchido(resp.nome)) P.push({ b: true, t: 'Nome de quem faz o orçamento', alvo: `[data-bind="equipe.${S.equipe.indexOf(resp)}.nome"]` });
     if (!preenchido(o.cliente.nome)) P.push({ b: true, t: 'Nome do cliente', alvo: '[data-bind="atual.cliente.nome"]' });
     if (!r.temItens) P.push({ b: true, t: 'Gramas e tempo de uma peça, ou horas de modelagem', alvo: `[data-id="${o.itens[0].id}"] [data-f="gramas"]` });
@@ -533,7 +649,7 @@
     });
     if (r.flags.abaixoDoCusto) P.push({ b: true, t: 'Preço abaixo do custo: diminua o desconto', alvo: '[data-bind="atual.descontoPct"]' });
     if ((o.entrega === 'correios' || o.entrega === 'app') && !r.frete) P.push({ b: false, t: 'Valor do frete', alvo: '[data-bind="atual.frete"]' });
-    if (o.pagamento === 'pix' && !preenchido(S.empresa.pix)) P.push({ b: false, t: 'Chave Pix da empresa', alvo: S.ui.setupFeito ? '#empresa' : '[data-bind="empresa.pix"]' });
+    if (o.pagamento === 'pix' && !preenchido(S.empresa.pix)) P.push({ b: false, t: 'Chave Pix da empresa', alvo: '#empresa' });
     return P;
   }
 
@@ -590,12 +706,14 @@
     const filtros = Object.assign({ todos: 'Todos' }, STATUS);
     const dias = S.ui.ultimoBackup ? Math.round((Date.now() - new Date(S.ui.ultimoBackup + 'T12:00:00')) / 864e5) : null;
     const lembrar = S.orcamentos.length >= 3 && (dias === null || dias > 14);
+    const uso = usoArmazenamento();
     return `<div class="page">
     <header class="page-head">
       <div><h1>Histórico</h1><p class="lede">Todo orçamento com conteúdo fica salvo aqui. Atualize o status para ver o que virou pedido.</p></div>
       <div class="head-actions"><button class="btn btn-solid" data-act="novo">Novo orçamento</button></div>
     </header>
     ${lembrar ? `<div class="banner" role="note"><p><b>Faça um backup.</b> Os orçamentos existem só neste navegador${dias !== null ? ` e o último backup foi há ${dias} dias` : ''}.</p><div class="head-actions"><button class="btn" data-act="exportar">Exportar backup</button></div></div>` : ''}
+    ${uso > 0.6 ? `<div class="banner" role="alert"><p><b>O espaço deste navegador está ${pct(uso)} usado.</b> Exporte um backup e exclua orçamentos antigos para continuar salvando.</p><div class="head-actions"><button class="btn" data-act="exportar">Exportar backup</button></div></div>` : ''}
     <div id="hist-stats">${histStatsHTML()}</div>
     <section class="panel">
       <div class="toolbar">
@@ -840,17 +958,18 @@
     const n = (k, label, dica) => campo(label, numInp(`data-bind="empresa.${k}"`, e[k], { int: true }), dica);
     const chk = (k, label, dica) => `<label class="check"><input type="checkbox" data-bind="empresa.${k}"${e[k] ? ' checked' : ''}><span>${label}${dica ? `<small>${dica}</small>` : ''}</span></label>`;
     return `<div class="page">
-    <header class="page-head"><div><h1>Empresa e equipe</h1><p class="lede">Estes dados aparecem no PDF, na mensagem do WhatsApp e na página “O que atendemos”. Outra empresa pode usar a plataforma trocando nome, logo e cor.</p></div></header>
+    <header class="page-head"><div><h1>Empresa e equipe</h1><p class="lede">Estes dados aparecem no PDF, na mensagem do WhatsApp e na página “O que atendemos”. Ficam só neste navegador.</p></div></header>
+    ${empresaValida() ? '' : `<div class="banner" role="alert"><p><b>Faltam dados da empresa.</b> Sem nome, cidade e um contato (WhatsApp ou e-mail), não dá para gerar orçamentos.</p></div>`}
     <div class="two-col"><div>
       <section class="panel"><h2>Identidade</h2><div class="grid g2">
         ${t('nome', 'Nome da empresa', 'Sua empresa')}
         ${t('slogan', 'Frase curta', 'O que você faz, em uma linha')}
         <div class="field"><span class="field-label">Logo</span>
-          <div class="logo-row">${e.logo ? `<img src="${e.logo}" alt="Logo atual">` : ''}<label class="btn file-btn">${e.logo ? 'Trocar logo' : 'Enviar logo'}<input type="file" accept="image/*" data-file="logo" class="sr-only"></label>${e.logo ? '<button class="btn btn-text danger" data-act="logo-remover">Remover</button>' : ''}</div>
+          <div class="logo-row">${imgLogo(e.logo, 'Logo atual')}<label class="btn file-btn">${e.logo ? 'Trocar logo' : 'Enviar logo'}<input type="file" accept="image/*" data-file="logo" class="sr-only"></label>${e.logo ? '<button class="btn btn-text danger" data-act="logo-remover">Remover</button>' : ''}</div>
           <small>PNG, JPG ou SVG, de preferência quadrado.</small></div>
         <div class="field"><span class="field-label">Cor da marca</span>
-          <div class="color-row"><input type="color" data-bind="empresa.cor" value="${esc(corValida(e.cor))}" aria-label="Escolher cor"><input type="text" data-bind="empresa.cor" value="${esc(e.cor)}" maxlength="7" aria-label="Cor em hexadecimal" autocomplete="off"></div>
-          <small>Laranja Scapus: #FF6A00.</small></div>
+          <div class="color-row"><input type="color" data-bind="empresa.cor" value="${esc(corUI(e.cor))}" aria-label="Escolher cor"><input type="text" data-bind="empresa.cor" value="${esc(e.cor)}" maxlength="7" placeholder="#RRGGBB" aria-label="Cor em hexadecimal" autocomplete="off"></div>
+          <small>Sem cor escolhida, o PDF sai em tons neutros.</small></div>
         ${t('prefixo', 'Prefixo dos orçamentos', 'ORC', `Gera números como ${esc(String(e.prefixo || 'ORC').toUpperCase())}-${new Date().getFullYear()}-0001.`, 'maxlength="6"')}
       </div></section>
 
@@ -900,13 +1019,29 @@
 
       <section class="panel"><h2>Observações padrão</h2>${campo('Texto que entra em todo orçamento novo', `<textarea rows="3" data-bind="empresa.observacoes">${esc(e.observacoes)}</textarea>`)}</section>
 
-      <section class="panel"><h2>Backup</h2>
-        <p class="panel-note">Os dados ficam só neste navegador. Exporte um arquivo para guardar ou para levar a outro aparelho.${S.ui.ultimoBackup ? ` Último backup: ${fmtData(S.ui.ultimoBackup)}.` : ''}</p>
-        <div class="toolbar"><button class="btn" data-act="exportar">Exportar backup</button><button class="btn" data-act="importar">Importar backup</button><button class="btn btn-text danger" data-act="restaurar">Restaurar padrões</button></div>
-      </section>
+      <section class="panel" id="dados" aria-labelledby="h-dados">${dadosHTML()}</section>
     </div>
     <aside id="politica">${politicaPreviewHTML()}</aside>
     </div></div>`;
+  }
+
+  function dadosHTML() {
+    const ub = S.ui.ultimoBackup ? ` Último backup: ${fmtData(S.ui.ultimoBackup)}.` : '';
+    const uso = usoArmazenamento();
+    return `<h2 id="h-dados">Backup e dados deste navegador</h2>
+      <p class="panel-note">Tudo fica só neste navegador.<b> Backup</b> leva tudo, inclusive o histórico com nomes e telefones de clientes: guarde em lugar seguro.<b> Configuração</b> leva só a empresa e a tabela de preços, sem clientes: serve para preparar outro aparelho.${ub}</p>
+      <p class="uso">Espaço usado: <b>${pct(uso)}</b>${uso > 0.6 ? ' (exporte um backup e exclua orçamentos antigos)' : ''}</p>
+      <div class="toolbar"><button class="btn" data-act="exportar">Exportar backup</button><button class="btn" data-act="exportar-config">Exportar configuração</button><button class="btn" data-act="importar">Importar arquivo</button></div>
+      <div class="toolbar"><button class="btn btn-text" data-act="restaurar">Restaurar tabela de preços padrão</button></div>
+      <details class="mais"><summary>Apagar os dados deste navegador</summary>
+        <p class="panel-note">Use num computador compartilhado ou para recomeçar do zero. Exporte um backup antes: depois de apagado, não dá para recuperar.</p>
+        <div id="apagar-area">${apagarAreaHTML(false)}</div>
+      </details>`;
+  }
+  function apagarAreaHTML(confirmando) {
+    if (!confirmando) return '<button class="btn btn-text danger" data-act="apagar-dados">Apagar tudo deste navegador</button>';
+    return `<div class="confirma" role="alert"><p><b>Tem certeza?</b> A empresa, a tabela e todos os ${S.orcamentos.length} orçamentos serão apagados deste navegador.</p>
+      <div class="head-actions"><button class="btn" data-act="apagar-cancelar">Cancelar</button><button class="btn btn-danger" data-act="apagar-dados-sim">Sim, apagar tudo</button></div></div>`;
   }
 
   function politicaPreviewHTML() {
@@ -927,13 +1062,13 @@
   /* ================= DOCUMENTOS (PDF) ================= */
   function docMarca() {
     const e = S.empresa;
-    return `<div class="doc-brand">${e.logo ? `<img src="${e.logo}" alt="${esc(e.nome)}">` : `<span class="mono">${esc(iniciais(e.nome))}</span>`}<div><strong>${esc(e.nome)}</strong>${e.slogan ? `<span>${esc(e.slogan)}</span>` : ''}</div></div>`;
+    return `<div class="doc-brand">${imgLogo(e.logo, e.nome) || `<span class="mono">${esc(iniciais(e.nome))}</span>`}<div><strong>${esc(e.nome)}</strong>${e.slogan ? `<span>${esc(e.slogan)}</span>` : ''}</div></div>`;
   }
   function docRodape() {
     const e = S.empresa;
     const esq = contatos().map(esc).join('<br>');
     const dir = [`<b>${esc(e.nome)}</b>`, esc(e.cidade), e.documento ? `CPF/CNPJ ${esc(e.documento)}` : ''].filter(Boolean).join('<br>');
-    return `<footer class="doc-foot"><div>${esq || '&nbsp;'}</div><div style="text-align:right">${dir}</div></footer>`;
+    return `<footer class="doc-foot"><div>${esq || '&nbsp;'}</div><div class="dir">${dir}</div></footer>`;
   }
   const fmtDims = (d) => { const v = (d || []).map(C.n0); return v.every((x) => x > 0) ? v.map((x) => fmtNum(x)).join(' × ') + ' mm' : ''; };
 
@@ -973,7 +1108,7 @@
       ${pecas ? `<p class="doc-section">Peças impressas</p><table><thead><tr><th>Peça</th><th class="num">Qtd.</th><th class="num">Unitário</th><th class="num">Total</th></tr></thead><tbody>${pecas}</tbody></table>` : ''}
       ${servs ? `<p class="doc-section">Modelagem 3D <small>(serviço cobrado por hora)</small></p><table><thead><tr><th>Serviço</th><th class="num">Horas</th><th class="num">Valor da hora</th><th class="num">Total</th></tr></thead><tbody>${servs}</tbody></table>` : ''}
       <dl class="doc-totals">${T.map((l) => `<dt>${esc(l[0])}</dt><dd>${l[1]}</dd>`).join('')}<dt class="grand">Total</dt><dd class="grand">${brl(r.total)}</dd></dl>
-      <section class="doc-terms"><p class="doc-section" style="margin-top:0">Condições</p><dl>${termos.map((l) => `<dt>${esc(l[0])}</dt><dd>${esc(l[1])}</dd>`).join('')}</dl></section>
+      <section class="doc-terms"><p class="doc-section first">Condições</p><dl>${termos.map((l) => `<dt>${esc(l[0])}</dt><dd>${esc(l[1])}</dd>`).join('')}</dl></section>
       <div class="doc-sign"><div>De acordo: ${esc(cli.nome || 'cliente')}</div><div>Data</div></div>
       ${docRodape()}
     </article>`;
@@ -996,7 +1131,7 @@
       <header class="doc-head">${docMarca()}<div class="doc-meta"><h1>Tabela de preços</h1><p class="doc-num">${esc(mat ? mat.nome : '')}</p><p>Atualizada em ${fmtData(hojeISO())}</p></div></header>
       <div class="doc-rule"></div>
       <table><thead><tr><th>Exemplo de peça</th><th class="num">Uma unidade</th><th class="num">Cada, em lote de 10</th></tr></thead><tbody>${linhas}</tbody></table>
-      <section class="doc-terms"><p class="doc-section" style="margin-top:0">Como calculamos</p><dl>
+      <section class="doc-terms"><p class="doc-section first">Como calculamos</p><dl>
         <dt>Peças</dt><dd>Gramas de material e horas de máquina de cada peça, com reserva para falhas.</dd>
         <dt>Modelagem 3D</dt><dd>${brl(p.horaModelagem)} por hora trabalhada, quando você não tem o arquivo pronto.</dd>
         <dt>Acabamento</dt><dd>${brl(p.horaOperacao)} por hora (lixar, colar, montar).</dd>
@@ -1011,7 +1146,10 @@
   /* Prévia: o usuário vê exatamente o que o cliente vai receber antes de salvar. */
   let pvTitulo = '', pvFocoAntes = null;
   function abrirPreview(html, titulo) {
-    $('#print-root').innerHTML = html;
+    const raiz = $('#print-root'), cor = corDoc(S.empresa.cor);
+    raiz.style.setProperty('--accent', cor);
+    raiz.style.setProperty('--on-accent', textoSobre(cor));
+    raiz.innerHTML = html;
     pvTitulo = titulo;
     pvFocoAntes = document.activeElement;
     $('#preview').hidden = false;
@@ -1116,29 +1254,174 @@
     fr.readAsDataURL(file);
   }
 
+  function baixar(conteudo, nome) {
+    const blob = new Blob([conteudo], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = nome;
+    document.body.appendChild(a); a.click();
+    setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 800);
+  }
+
   function exportar() {
     S.ui.ultimoBackup = hojeISO();
     salvarJa();
-    const blob = new Blob([JSON.stringify(S, null, 2)], { type: 'application/json' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `backup-orcamentos-${hojeISO()}.json`;
-    document.body.appendChild(a); a.click();
-    setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 800);
-    toast('Backup salvo na pasta de downloads.');
+    pedirPersistencia();
+    baixar(JSON.stringify(S, null, 2), `backup-orcamentos-${slug(S.empresa.nome)}-${hojeISO()}.json`);
+    toast('Backup salvo nos downloads. Ele tem dados de clientes: guarde em lugar seguro.');
     if (rota() === 'historico' || rota() === 'empresa') render();
+  }
+
+  function exportarConfig() {
+    const cfg = {
+      tipo: 'configuracao-orcamento3d',
+      descricao: `Configuração da ${S.empresa.nome || 'empresa'}. Importe na tela de cadastro ou em Empresa e equipe.`,
+      versao: 3, empresa: S.empresa, equipe: S.equipe, params: S.params, materiais: S.materiais, impressoras: S.impressoras, exemplos: S.exemplos
+    };
+    baixar(JSON.stringify(cfg, null, 2), `configuracao-${slug(S.empresa.nome)}.json`);
+    toast('Configuração salva nos downloads. Ela não tem dados de clientes.');
   }
 
   function importar(file) {
     if (!file) return;
+    if (file.size > 20 * 1024 * 1024) { toast('Arquivo grande demais para ser um backup desta plataforma.'); return; }
     const fr = new FileReader();
     fr.onload = () => {
       let dados = null;
-      try { dados = JSON.parse(fr.result); } catch (e) { dados = null; }
-      if (!dados || !dados.empresa || !dados.params) { toast('Esse arquivo não é um backup desta plataforma.'); return; }
-      comDesfazer('Backup importado.', () => { S = mesclar(D.estadoInicial(), dados); garantirAtual(); });
+      try { dados = lerJSON(fr.result); } catch (e) { dados = null; }
+      if (!dados || typeof dados !== 'object' || Array.isArray(dados) || !dados.empresa || !dados.params) { toast('Esse arquivo não é um backup nem uma configuração desta plataforma.'); return; }
+      aplicarBackup(dados);
     };
+    fr.onerror = () => toast('Não consegui ler esse arquivo.');
     fr.readAsText(file);
+  }
+
+  function aplicarBackup(dados) {
+    const config = dados.tipo === 'configuracao-orcamento3d';
+    const estavaCadastrada = S.ui.empresaCadastrada;
+    comDesfazer(config ? 'Configuração importada. Seus orçamentos continuam.' : 'Backup importado.', () => {
+      // configuração: troca empresa e tabela, mas mantém histórico, numeração e o estado do cadastro
+      const origem = config ? Object.assign({}, dados, { orcamentos: S.orcamentos, atual: S.atual, seq: S.seq, ui: S.ui }) : dados;
+      S = mesclar(D.estadoInicial(), origem);
+      garantirAtual();
+    });
+    if (!S.ui.empresaCadastrada) toast(estavaCadastrada ? 'Importado. Confira os dados da empresa.' : 'Dados importados. Confira e conclua o cadastro.');
+  }
+
+  /* ================= CADASTRO DA EMPRESA (primeiro acesso) =================
+     Nenhum nome, logo ou contato vem de fábrica. Até a empresa se cadastrar, a plataforma
+     só mostra esta tela: não dá para montar orçamento nem gerar PDF. */
+  function faltasCadastro() {
+    const e = S.empresa, eq = S.equipe[0] || {}, F = [];
+    if (!preenchido(e.nome)) F.push(['nome da empresa', 'empresa.nome']);
+    if (!preenchido(eq.nome)) F.push(['seu nome', 'equipe.0.nome']);
+    if (!preenchido(e.cidade)) F.push(['cidade', 'empresa.cidade']);
+    if (!preenchido(e.whatsapp) && !preenchido(e.email)) F.push(['WhatsApp ou e-mail', 'empresa.whatsapp']);
+    return F;
+  }
+  const empresaValida = () => { const e = S.empresa; return preenchido(e.nome) && preenchido(e.cidade) && (preenchido(e.whatsapp) || preenchido(e.email)); };
+
+  function viewCadastro() {
+    const e = S.empresa, eq = S.equipe[0], imp = S.impressoras[0];
+    const ob = '<span class="req">obrigatório</span>';
+    const marcas = [...new Set(D.CATALOGO.map((c) => c.marca))];
+    const optImp = (imp && !imp.catalogoId ? `<option value="" selected>${esc(apelido(imp))}</option>` : '') +
+      marcas.map((m) => `<optgroup label="${esc(m)}">${D.CATALOGO.filter((c) => c.marca === m).map((c) => `<option value="${esc(c.id)}"${imp && imp.catalogoId === c.id ? ' selected' : ''}>${esc(c.marca)} ${esc(c.modelo)}</option>`).join('')}</optgroup>`).join('');
+    return `<div class="cad">
+      <header class="cad-brand"><img src="assets/favicon.svg" alt=""><div><strong>Orçamentos 3D</strong><span>Ferramenta gratuita da Scapus Lab</span></div></header>
+      <div class="cad-intro">
+        <h1>Cadastre a sua empresa</h1>
+        <p class="lede">É a primeira vez que este navegador abre a plataforma. O nome, o logo e os contatos que você cadastrar aqui vão nos seus orçamentos em PDF e nas mensagens para clientes.</p>
+        <p class="cad-priv">Os dados ficam guardados só neste navegador. Ninguém mais vê, e ninguém gera orçamentos com eles.</p>
+      </div>
+      <div class="banner"><p><b>Já usa em outro aparelho?</b> Importe o backup ou a configuração da sua empresa e só confira os dados.</p><div class="head-actions"><button class="btn" data-act="importar">Importar arquivo</button></div></div>
+      <section class="panel" aria-labelledby="cad-h1"><h2 id="cad-h1">Sua empresa</h2><div class="grid g2">
+        ${campo('Nome da empresa' + ob, inp('empresa.nome', e.nome, 'Como aparece para o cliente', 'autocomplete="organization" aria-required="true"'))}
+        ${campo('Cidade' + ob, inp('empresa.cidade', e.cidade, 'ex.: Belo Horizonte – MG', 'autocomplete="address-level2" aria-required="true"'))}
+        <div class="field"><span class="field-label">Logo</span>
+          <div class="logo-row">${imgLogo(e.logo, 'Logo atual')}<label class="btn file-btn">${e.logo ? 'Trocar logo' : 'Enviar logo'}<input type="file" accept="image/*" data-file="logo" class="sr-only"></label>${e.logo ? '<button class="btn btn-text danger" data-act="logo-remover">Remover</button>' : ''}</div>
+          <small>Opcional. PNG, JPG ou SVG. Sem logo, o PDF usa as iniciais da empresa.</small></div>
+        <div class="field"><span class="field-label">Cor da marca</span>
+          <div class="color-row"><input type="color" data-bind="empresa.cor" value="${esc(corUI(e.cor))}" aria-label="Escolher cor"><input type="text" data-bind="empresa.cor" value="${esc(e.cor)}" maxlength="7" placeholder="#RRGGBB" aria-label="Cor em hexadecimal" autocomplete="off"></div>
+          <small>Opcional. Sem cor, o PDF sai em tons neutros.</small></div>
+        ${campo('Frase curta', inp('empresa.slogan', e.slogan, 'ex.: Impressão 3D sob medida'), 'Opcional. Aparece embaixo do nome no PDF.')}
+        ${campo('CPF ou CNPJ', inp('empresa.documento', e.documento, ''), 'Opcional. Vai no rodapé do PDF.')}
+      </div></section>
+      <section class="panel" aria-labelledby="cad-h2"><h2 id="cad-h2">Contato que vai no orçamento</h2><p class="panel-note">Preencha pelo menos o WhatsApp ou o e-mail da empresa.</p><div class="grid g2">
+        ${campo('Seu nome' + ob, inp('equipe.0.nome', eq.nome, 'Quem assina os orçamentos', 'autocomplete="name" aria-required="true"'))}
+        ${campo('Sua função', inp('equipe.0.cargo', eq.cargo, 'ex.: Modelagem e impressão 3D'))}
+        ${campo('WhatsApp da empresa', inp('empresa.whatsapp', e.whatsapp, '(31) 9 9999-9999', 'inputmode="tel" autocomplete="tel"'))}
+        ${campo('E-mail', inp('empresa.email', e.email, 'contato@suaempresa.com.br', 'inputmode="email" autocomplete="email"'))}
+        ${campo('Instagram', inp('empresa.instagram', e.instagram, '@suaempresa'))}
+        ${campo('Site', inp('empresa.site', e.site, 'suaempresa.com.br'))}
+      </div></section>
+      <section class="panel" aria-labelledby="cad-h3"><h2 id="cad-h3">Sua impressora</h2><p class="panel-note">Entra no custo por hora de cada peça. Dá para cadastrar outras depois, em Impressoras.</p><div class="grid g3">
+        ${campo('Modelo', `<select data-cad-imp aria-label="Modelo da impressora">${optImp}</select>`, 'Não achou? Escolha a mais parecida e ajuste depois.')}
+        ${campo('Preço que você pagou (R$)', numInp('data-bind="impressoras.0.precoPago"', imp ? imp.precoPago : '', { ph: 'ex.: 3400' }), 'Para calcular o desgaste da máquina.')}
+        ${campo('Energia (R$ por kWh)', numInp('data-bind="params.tarifaKwh"', S.params.tarifaKwh), 'Total da conta de luz dividido pelos kWh do mês.')}
+      </div></section>
+      <section class="panel" aria-labelledby="cad-h4"><h2 id="cad-h4">Pagamento e retirada</h2><p class="panel-note">Opcional agora. Aparecem nas condições do orçamento.</p><div class="grid g2">
+        ${campo('Chave Pix', inp('empresa.pix', e.pix, 'CPF, CNPJ, e-mail, celular ou aleatória'))}
+        ${campo('Ponto de retirada', inp('empresa.retiradaLocal', e.retiradaLocal, 'ex.: estação de metrô, faculdade'))}
+      </div></section>
+      <div class="cad-fim" id="cad-fim">${cadFimHTML()}</div>
+    </div>`;
+  }
+
+  function cadFimHTML() {
+    const F = faltasCadastro();
+    const falta = F.length ? `<p class="cad-falta">Falta preencher: ${F.map((f) => `<button type="button" class="link" data-act="ir" data-alvo="${esc(`[data-bind="${f[1]}"]`)}">${esc(f[0])}</button>`).join(', ')}.</p>` : '<p class="cad-ok">Tudo certo. Pode concluir.</p>';
+    return `${falta}<button class="btn btn-solid btn-grande" data-act="cad-ok">Concluir cadastro</button><p class="cad-nota">Dá para mudar tudo depois, em Empresa e equipe.</p>`;
+  }
+
+  function trocarImpressoraCadastro(catId) {
+    if (!catId || !acha(D.CATALOGO, catId)) return;
+    const atual = S.impressoras[0];
+    const extra = { precoPago: atual ? atual.precoPago : '' };
+    if (atual) extra.id = atual.id;
+    const nova = sanearImp(D.daCatalogo(catId, extra));
+    if (atual) S.impressoras[0] = nova; else S.impressoras.unshift(nova);
+    salvar();
+  }
+
+  function concluirCadastro() {
+    const F = faltasCadastro();
+    if (F.length) {
+      irPara(`[data-bind="${F[0][1]}"]`);
+      toast(`Falta preencher: ${listaPT(F.map((f) => f[0]))}.`);
+      return;
+    }
+    const e = S.empresa;
+    if (!preenchido(e.prefixo) || e.prefixo === 'ORC') {
+      const p = slug(e.nome).replace(/-/g, '').toUpperCase().slice(0, 3);
+      if (p.length >= 2) e.prefixo = p;
+    }
+    S.ui.empresaCadastrada = true;
+    S.ui.ultimoResponsavel = S.equipe[0].id;
+    if (!temConteudo(S.atual)) S.atual = novoOrcamento();
+    salvarJa();
+    pedirPersistencia();
+    history.replaceState(null, '', '#orcamento');
+    render();
+    window.scrollTo(0, 0);
+    toast(`${e.nome} cadastrada. Agora é só montar o primeiro orçamento.`);
+  }
+
+  function apagarDados() {
+    try { localStorage.removeItem(KEY); } catch (e) { /* nada */ }
+    S = mesclar(D.estadoInicial(), null);
+    history.replaceState(null, '', '#orcamento');
+    render();
+    window.scrollTo(0, 0);
+    toast('Dados apagados deste navegador.');
+  }
+
+  /* Erro inesperado: avisa sem travar a página (os dados já estão salvos). */
+  let ultimoErro = 0;
+  function falhou() {
+    if (Date.now() - ultimoErro < 10000) return;
+    ultimoErro = Date.now();
+    try { toast('Algo deu errado nesta tela. Seus dados continuam salvos. Se algo parecer estranho, recarregue a página.'); } catch (e) { /* nada */ }
   }
 
   /* ================= ROTAS E REGIÕES ================= */
@@ -1147,15 +1430,18 @@
     resumo: resumoHTML, entrega: entregaHTML, itens: itensHTML, servicos: servicosHTML, cliente: clienteHTML, mbar: mbarHTML,
     'hist-lista': histListaHTML, 'hist-stats': histStatsHTML,
     'tab-custos': tabCustosHTML, 'tab-rapida': tabRapidaHTML,
-    catalogo: catalogoHTML, politica: politicaPreviewHTML
+    catalogo: catalogoHTML, politica: politicaPreviewHTML, 'cad-fim': cadFimHTML
   };
   function rota() { const v = (location.hash || '#orcamento').slice(1); return VIEWS[v] ? v : 'orcamento'; }
 
   function aplicarMarca() {
-    const e = S.empresa;
-    document.documentElement.style.setProperty('--accent', corValida(e.cor));
-    $('#brand').innerHTML = `${e.logo ? `<img src="${e.logo}" alt="">` : `<span class="mono" aria-hidden="true">${esc(iniciais(e.nome))}</span>`}<span><span class="brand-name">${esc(e.nome || 'Sua empresa')}</span><span class="brand-sub">Orçamentos</span></span>`;
-    document.title = `Orçamentos | ${e.nome || 'Impressão 3D'}`;
+    const e = S.empresa, cor = corUI(e.cor);
+    document.documentElement.style.setProperty('--accent', cor);
+    document.documentElement.style.setProperty('--on-accent', textoSobre(cor));
+    $('#brand').innerHTML = `${imgLogo(e.logo, '') || `<span class="mono" aria-hidden="true">${esc(iniciais(e.nome))}</span>`}<span><span class="brand-name">${esc(e.nome || 'Sua empresa')}</span><span class="brand-sub">Orçamentos</span></span>`;
+    document.title = S.ui.empresaCadastrada && e.nome ? `Orçamentos | ${e.nome}` : 'Orçamentos 3D | Scapus Lab';
+    const pe = $('#side-foot');
+    if (pe) pe.innerHTML = 'Tudo é salvo sozinho neste navegador. Faça backup em Empresa e equipe.<span class="credito">Orçamentos 3D, ferramenta da Scapus Lab</span>';
   }
 
   function assinatura(el) {
@@ -1173,21 +1459,36 @@
     if (el && !el.disabled) el.focus({ preventScroll: true });
   }
 
+  /* Proporções da pilha de custos aplicadas via CSSOM (a CSP não permite estilo inline no HTML). */
+  const aplicarProporcoes = (raiz) => $$('[data-grow]', raiz || document).forEach((el) => { el.style.flexGrow = el.dataset.grow; });
+
   function render() {
+    if (!S) return;
     garantirAtual();
     aplicarMarca();
+    const main = $('#main');
+    if (!S.ui.empresaCadastrada) {
+      document.body.classList.add('onboarding');
+      const a0 = assinatura(document.activeElement);
+      main.innerHTML = viewCadastro();
+      main.classList.remove('has-mbar');
+      restaurarFoco(a0);
+      return;
+    }
+    document.body.classList.remove('onboarding');
     const v = rota();
     $$('.nav a').forEach((a) => { if (a.dataset.view === v) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current'); });
     const a = assinatura(document.activeElement);
-    const main = $('#main');
     main.innerHTML = VIEWS[v]();
     main.classList.toggle('has-mbar', v === 'orcamento');
+    aplicarProporcoes(main);
     restaurarFoco(a);
     indicarSalvo();
   }
   function atualizar(ids) {
+    if (!S) return;
     const a = assinatura(document.activeElement);
-    ids.forEach((id) => { const n = document.getElementById(id); if (n && REGIOES[id]) n.innerHTML = REGIOES[id](); });
+    ids.forEach((id) => { const n = document.getElementById(id); if (n && REGIOES[id]) { n.innerHTML = REGIOES[id](); aplicarProporcoes(n); } });
     restaurarFoco(a);
   }
 
@@ -1261,6 +1562,14 @@
   }
 
   function depois(el) {
+    if (!S.ui.empresaCadastrada) {
+      atualizar(['cad-fim']);
+      if (el.dataset.bind === 'empresa.cor') {
+        aplicarMarca();
+        if (/^#[0-9a-f]{6}$/i.test(el.value)) $$('[data-bind="empresa.cor"]').forEach((x) => { if (x !== el) x.value = el.value; });
+      }
+      return;
+    }
     const v = rota();
     if (el.dataset.rerender) atualizar(el.dataset.rerender.split(' '));
     if (v === 'orcamento') {
@@ -1288,6 +1597,13 @@
     }
   }
 
+  function exigeEmpresa() {
+    if (empresaValida()) return true;
+    toast('Complete os dados da empresa (nome, cidade e WhatsApp ou e-mail) antes de gerar documentos.');
+    location.hash = '#empresa';
+    return false;
+  }
+
   /* Bloqueia o envio quando falta algo essencial e leva o usuário direto ao campo. */
   function podeEnviar() {
     const P = pendencias(calcAtual()).filter((p) => p.b);
@@ -1312,14 +1628,15 @@
   }
 
   function onClick(ev) {
+    if (!S) return;
     const b = ev.target.closest('[data-act]');
-    if (!b || b.disabled) return;
+    if (!b || b.disabled || b.closest('#preview')) return;
     const act = b.dataset.act;
     const linha = b.closest('[data-id]');
     const id = linha ? linha.dataset.id : null;
 
     switch (act) {
-      case 'setup-ok': S.ui.setupFeito = true; salvarJa(); render(); toast('Pronto. Esses dados ficam em Empresa e equipe.'); break;
+      case 'cad-ok': concluirCadastro(); break;
       case 'novo': {
         salvarJa();
         const anterior = temConteudo(S.atual) ? S.atual.numero : null;
@@ -1407,7 +1724,7 @@
         break;
       }
       case 'pdf-hist': {
-        const h = acha(S.orcamentos, id); if (!h) break;
+        const h = acha(S.orcamentos, id); if (!h || !exigeEmpresa()) break;
         abrirPreview(docOrcamentoHTML(h, C.calcOrcamento(h, h.snap || ctx())), nomeArquivo(h)); break;
       }
       case 'excluir': {
@@ -1461,29 +1778,35 @@
         comDesfazer(`${m.nome || 'Pessoa'} excluída da equipe.`, () => { S.equipe = S.equipe.filter((x) => x.id !== id); garantirAtual(); });
         break;
       }
-      case 'pdf-tabela': abrirPreview(docTabelaHTML(), `Tabela de preços - ${S.empresa.nome}`); break;
-      case 'pdf-politica': abrirPreview(docPoliticaHTML(), `O que atendemos - ${S.empresa.nome}`); break;
-      case 'copiar-politica': copiar(politicaTexto()).then(() => toast('Texto copiado.')); break;
+      case 'pdf-tabela': if (exigeEmpresa()) abrirPreview(docTabelaHTML(), `Tabela de preços - ${S.empresa.nome}`); break;
+      case 'pdf-politica': if (exigeEmpresa()) abrirPreview(docPoliticaHTML(), `O que atendemos - ${S.empresa.nome}`); break;
+      case 'copiar-politica': if (exigeEmpresa()) copiar(politicaTexto()).then(() => toast('Texto copiado.')); break;
       case 'logo-remover': comDesfazer('Logo removido.', () => { S.empresa.logo = ''; }); break;
       case 'exportar': exportar(); break;
+      case 'exportar-config': exportarConfig(); break;
       case 'importar': $('#file-backup').click(); break;
       case 'restaurar':
-        comDesfazer('Padrões restaurados. Seu histórico continua.', () => {
+        comDesfazer('Tabela de preços, materiais, impressoras e exemplos voltaram ao padrão. Empresa e histórico continuam.', () => {
           const base = D.estadoInicial();
-          Object.assign(base, { orcamentos: S.orcamentos, seq: S.seq, atual: S.atual, equipe: S.equipe, ui: S.ui });
-          S = base; garantirAtual();
+          Object.assign(base, { empresa: S.empresa, equipe: S.equipe, ui: S.ui, orcamentos: S.orcamentos, seq: S.seq, atual: S.atual });
+          S = mesclar(D.estadoInicial(), base); garantirAtual();
         });
         break;
+      case 'apagar-dados': $('#apagar-area').innerHTML = apagarAreaHTML(true); $('#apagar-area [data-act="apagar-cancelar"]').focus(); break;
+      case 'apagar-cancelar': $('#apagar-area').innerHTML = apagarAreaHTML(false); break;
+      case 'apagar-dados-sim': apagarDados(); break;
       default: break;
     }
   }
 
   function iniciar() {
-    garantirAtual();
+    iniciarEstado();
     const main = $('#main');
-    main.addEventListener('input', (ev) => { const el = ev.target; if (ehEscolha(el) || el.type === 'file') return; aplicar(el); depois(el); });
+    main.addEventListener('input', (ev) => { const el = ev.target; if (!S || ehEscolha(el) || el.type === 'file') return; aplicar(el); depois(el); });
     main.addEventListener('change', (ev) => {
       const el = ev.target;
+      if (!S) return;
+      if (el.matches('[data-cad-imp]')) { trocarImpressoraCadastro(el.value); return; }
       if (el.type === 'file') { if (el.dataset.file === 'logo') lerLogo(el.files[0]); el.value = ''; return; }
       if (!ehEscolha(el)) return;
       aplicar(el); depois(el);
@@ -1492,7 +1815,7 @@
       const d = ev.target;
       if (d.matches && d.matches('details.mais')) { const c = d.closest('[data-id]'); if (c) U.abertos[c.dataset.id] = d.open; }
     }, true);
-    main.addEventListener('click', onClick);
+    document.addEventListener('click', onClick);
     $('#preview').addEventListener('click', (ev) => {
       const b = ev.target.closest('[data-pv]');
       if (b) { if (b.dataset.pv === 'fechar') fecharPreview(); else salvarPDF(); }
@@ -1509,10 +1832,13 @@
       }
     });
     $('#file-backup').addEventListener('change', (ev) => { importar(ev.target.files[0]); ev.target.value = ''; });
-    window.addEventListener('hashchange', () => { if (pendente) salvarJa(); if (!$('#preview').hidden) fecharPreview(); render(); window.scrollTo(0, 0); main.focus({ preventScroll: true }); });
+    window.addEventListener('hashchange', () => { if (pendente) salvarJa(); if (!$('#preview').hidden) fecharPreview(); window.scrollTo(0, 0); render(); main.focus({ preventScroll: true }); });
     // grava o que estiver pendente ao sair, sem sobrescrever mudanças feitas em outra aba
     window.addEventListener('pagehide', () => { if (pendente) salvarJa(); });
-    window.addEventListener('storage', (ev) => { if (ev.key === KEY && !pendente) { S = carregar(); render(); } });
+    // outra aba mudou os dados: acompanha
+    window.addEventListener('storage', (ev) => { if (ev.key !== KEY || pendente) return; S = mesclar(D.estadoInicial(), lerBruto()); render(); });
+    window.addEventListener('error', falhou);
+    window.addEventListener('unhandledrejection', falhou);
     render();
     if (migrou) { migrou = false; salvarJa(); }
   }

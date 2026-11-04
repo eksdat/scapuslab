@@ -1,3 +1,13 @@
+/* Inter hospedada no próprio site (sem chamadas ao Google). Licença: assets/fonts/OFL.txt */
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url("fonts/inter-latin.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
 /* ===== Tokens (design system de scapus.com.br) ===== */
 :root {
   --accent: #FF6A00;                 /* troca pela cor da empresa em Empresa e equipe */
@@ -191,12 +201,7 @@ input[type="color"] { width: 46px; height: 42px; padding: 2px; border: 1px solid
 .pair { display: flex; align-items: center; gap: 8px; }
 fieldset.lock { border: 0; padding: 0; margin: 0; min-width: 0; }
 
-/* ===== Configuração inicial e avisos de página ===== */
-.setup { border: 1px solid color-mix(in oklab, var(--accent) 45%, var(--line)); background: var(--accent-soft); border-radius: var(--r-lg); padding: 20px 22px; margin-bottom: 18px; }
-.setup-head { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; align-items: flex-start; margin-bottom: 14px; }
-.setup-head p { color: var(--ink-2); font-size: .9rem; margin-top: 4px; max-width: 70ch; }
-.setup .grid { margin-bottom: 14px; }
-.progress { font-size: .84rem; font-weight: 600; color: var(--accent-ink); white-space: nowrap; }
+/* ===== Avisos de página ===== */
 .banner { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; justify-content: space-between; padding: 14px 18px; border-radius: var(--r-md); border: 1px solid var(--line-2); background: var(--surface-2); margin-bottom: 16px; }
 .banner p { font-size: .92rem; max-width: 72ch; }
 .banner .head-actions { gap: 6px; }
@@ -422,6 +427,8 @@ body.preview-open { overflow: hidden; }
 .doc-cols .nome { font-size: 10.5pt; font-weight: 600; }
 .doc-section { font-size: 9.5pt; font-weight: 650; margin: 16px 0 6px; }
 .doc-section small { font-weight: 400; color: #6B645B; }
+.doc-section.first { margin-top: 0; }
+.doc-foot .dir { text-align: right; }
 .doc table { font-size: 9.5pt; border: 0; }
 .doc th { background: #F5F0E8; color: #6B645B; font-size: 8pt; font-weight: 600; padding: 7px 8px; border-bottom: 1px solid #E2D9CC; }
 .doc td { padding: 8px; border-bottom: 1px solid #EDE6DB; }
@@ -441,3 +448,38 @@ body.preview-open { overflow: hidden; }
 .doc-note { font-size: 8.5pt; color: #6B645B; margin-top: 10px; }
 .doc-policy .doc-terms dl { grid-template-columns: 170px 1fr; }
 @media (max-width: 620px) { .doc-cols { grid-template-columns: 1fr; gap: 12px; } .doc-terms dl { grid-template-columns: 1fr; gap: 2px; } .doc-terms dd { margin-bottom: 6px; } .doc-totals { width: 100%; } }
+
+
+/* ===== Cadastro da empresa (primeiro acesso) ===== */
+body.onboarding .app { grid-template-columns: minmax(0, 1fr); }
+body.onboarding .side { display: none; }
+.cad { max-width: 880px; margin: 0 auto; }
+.cad-brand { display: flex; align-items: center; gap: 10px; margin-bottom: 28px; }
+.cad-brand img { width: 34px; height: 34px; border-radius: 9px; flex: none; }
+.cad-brand strong { display: block; font-weight: 650; letter-spacing: -0.01em; }
+.cad-brand span { display: block; font-size: .8rem; color: var(--ink-2); }
+.cad-intro { margin-bottom: 18px; }
+.cad-intro .lede { margin-top: 8px; }
+.cad-priv { margin-top: 10px; font-size: .9rem; color: var(--ink-2); max-width: 64ch; }
+.cad .banner { margin-bottom: 16px; }
+.req { display: inline-block; margin-left: 8px; font-size: .72rem; font-weight: 600; color: var(--accent-ink); }
+.cad-fim { margin-top: 18px; padding: 20px 22px; border-radius: var(--r-lg); background: var(--surface); border: 1px solid var(--line); display: flex; flex-direction: column; align-items: flex-start; gap: 12px; }
+.cad-falta { font-size: .92rem; }
+.cad-falta .link { color: var(--accent-ink); }
+.cad-ok { font-size: .92rem; font-weight: 600; color: var(--ok); }
+.btn-grande { min-height: 48px; padding: 10px 26px; font-size: 1rem; }
+.cad-nota { font-size: .84rem; color: var(--ink-2); }
+@media (max-width: 620px) { .btn-grande { width: 100%; } }
+
+.btn-danger { background: var(--bad); border-color: var(--bad); color: #fff; }
+.btn-danger:hover { background: color-mix(in oklab, var(--bad) 85%, #000); border-color: color-mix(in oklab, var(--bad) 85%, #000); }
+.confirma { padding: 12px 14px; border-radius: var(--r-md); border: 1px solid color-mix(in oklab, var(--bad) 40%, var(--line)); background: color-mix(in oklab, var(--bad) 6%, var(--surface)); }
+.confirma p { margin-bottom: 10px; }
+.uso { font-size: .88rem; color: var(--ink-2); margin: -6px 0 14px; }
+.uso b { color: var(--ink); }
+#dados .toolbar + .toolbar { margin-top: -4px; }
+.side-foot .credito { display: block; margin-top: 10px; font-size: .74rem; color: var(--ink-3); }
+
+/* ===== Página 404 ===== */
+.erro-404 { min-height: 100vh; display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 14px; max-width: 520px; margin: 0 auto; padding: 24px 16px; }
+.erro-404 img { border-radius: 10px; }

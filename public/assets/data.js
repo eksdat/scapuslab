@@ -3,8 +3,10 @@
  * - CATALOGO: impressoras FDM populares no Brasil, com valores de referência.
  *   "potencia" é a média aproximada imprimindo PLA (W). Onde a fonte é o
  *   fabricante, isso está marcado; o resto é estimativa. Confira e ajuste.
- * - estadoInicial(): configuração inicial (Scapus Lab, Bambu Lab A1, BH),
- *   com a identidade de scapus.com.br (logo, cor #FF6A00, Instagram).
+ * - estadoInicial(): configuração inicial GENÉRICA. Nenhum nome, logo, contato ou cidade de
+ *   empresa vem no código público: cada empresa se cadastra no próprio navegador, digitando
+ *   os dados ou importando um arquivo de configuração que fica só com ela.
+ * - Sem cor escolhida, a interface usa o laranja da ferramenta e o PDF sai em tons neutros.
  */
 (function (root) {
   'use strict';
@@ -109,25 +111,20 @@
     return o;
   }
 
-  var LOGO_SCAPUS = 'data:image/svg+xml,' + encodeURIComponent(
-    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160"><rect x="4" y="4" width="152" height="152" rx="38" fill="#FF6A00"/>' +
-    '<path d="M117 36.5H70C53 36.5 43 45.5 43 58.5C43 71.5 51 78.5 66 82.5L100 90.5C108 92.5 113 97.5 113 105.5C113 116.5 105 123.5 91 123.5H47" ' +
-    'fill="none" stroke="#fff" stroke-width="19" stroke-linecap="round" stroke-linejoin="round"/></svg>');
-
   function estadoInicial() {
     return {
-      versao: 2,
+      versao: 3,
       seq: 0,
       empresa: {
-        nome: 'Scapus Lab',
-        slogan: 'Modelagem 3D, protótipos e peças sob encomenda',
-        logo: LOGO_SCAPUS,
-        cor: '#FF6A00',
-        prefixo: 'SCP',
-        cidade: 'Belo Horizonte – MG',
-        site: 'scapus.com.br',
+        nome: '',
+        slogan: '',
+        logo: '',
+        cor: '',
+        prefixo: 'ORC',
+        cidade: '',
+        site: '',
         whatsapp: '',
-        instagram: '@scapus.br',
+        instagram: '',
         email: '',
         documento: '',
         validadeDias: 7,
@@ -146,9 +143,9 @@
         observacoes: 'Cores conforme o estoque de filamento. Peças impressas em FDM têm linhas de camada visíveis; acabamento liso é serviço à parte.'
       },
       equipe: [
-        { id: 'eq-1', nome: '', cargo: 'Modelagem e impressão 3D', whatsapp: '', email: '' }
+        { id: 'eq-1', nome: '', cargo: '', whatsapp: '', email: '' }
       ],
-      ui: { setupFeito: false, ultimoResponsavel: 'eq-1', ultimoBackup: '' },
+      ui: { empresaCadastrada: false, ultimoResponsavel: 'eq-1', ultimoBackup: '' },
       params: {
         tarifaKwh: 1.2,
         falhaPct: 10,
@@ -185,5 +182,5 @@
     };
   }
 
-  root.DADOS = { FAMILIAS: FAMILIAS, CATALOGO: CATALOGO, daCatalogo: daCatalogo, estadoInicial: estadoInicial, LOGO_SCAPUS: LOGO_SCAPUS };
+  root.DADOS = { FAMILIAS: FAMILIAS, CATALOGO: CATALOGO, daCatalogo: daCatalogo, estadoInicial: estadoInicial };
 })(typeof self !== 'undefined' ? self : this);
