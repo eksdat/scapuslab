@@ -1,0 +1,12 @@
+{
+  "name": "orcamento3d",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Plataforma de orçamentos para impressão 3D. Site estático, sem build.",
+  "scripts": {
+    "test": "node --test tests/calc.test.js",
+    "dev": "npx --yes serve public",
+    "deploy": "npx --yes wrangler pages deploy public --project-name orcamento3d"
+  },
+  "license": "MIT"
+}

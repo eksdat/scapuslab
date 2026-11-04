@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Orçamentos | Scapus Lab</title>
+  <meta name="description" content="Monte orçamentos de impressão 3D e modelagem com custo de material, máquina, energia, mão de obra e margem.">
+  <meta name="theme-color" content="#141210">
+  <meta name="robots" content="noindex">
+  <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400..700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/styles.css">
+</head>
+<body>
+  <a class="skip" href="#main">Pular para o conteúdo</a>
+  <div class="app">
+    <aside class="side">
+      <a class="brand" id="brand" href="#empresa" title="Editar dados da empresa"></a>
+      <nav class="nav" aria-label="Seções">
+        <a href="#orcamento" data-view="orcamento">Orçamento</a>
+        <a href="#historico" data-view="historico">Histórico</a>
+        <a href="#tabela" data-view="tabela">Tabela de preços</a>
+        <a href="#impressoras" data-view="impressoras">Impressoras</a>
+        <a href="#materiais" data-view="materiais">Materiais</a>
+        <a href="#empresa" data-view="empresa">Empresa e equipe</a>
+      </nav>
+      <p class="side-foot">Tudo é salvo sozinho neste navegador. Para levar a outro aparelho, use o backup em Empresa e equipe.</p>
+    </aside>
+    <main id="main" tabindex="-1"></main>
+  </div>
+
+  <div class="preview" id="preview" role="dialog" aria-modal="true" aria-labelledby="preview-titulo" hidden>
+    <div class="preview-bar">
+      <div>
+        <h2 id="preview-titulo">Prévia do PDF</h2>
+        <p>Confira como o cliente vai receber. Em “Salvar PDF”, escolha <b>Salvar como PDF</b> no destino da janela que abrir.</p>
+      </div>
+      <div class="preview-actions">
+        <button type="button" class="btn" data-pv="fechar">Fechar</button>
+        <button type="button" class="btn btn-solid" data-pv="salvar">Salvar PDF</button>
+      </div>
+    </div>
+    <div class="preview-scroll"><div class="preview-page" id="print-root"></div></div>
+  </div>
+
+  <div id="toast" role="status" aria-live="polite"></div>
+  <input type="file" id="file-backup" accept="application/json,.json" hidden>
+  <script src="assets/data.js"></script>
+  <script src="assets/calc.js"></script>
+  <script src="assets/app.js"></script>
+</body>
+</html>
